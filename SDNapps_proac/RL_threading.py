@@ -51,7 +51,7 @@ def calc_all_stretch(cont):
     total_paths = 0
     switches = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
     a = time.time()
-    with open('./RoutingGeant/stretch/'+str(cont)+'_stretch.csv','wb') as csvfile:
+    with open('./RoutingGeant/stretch/'+str(cont)+'_stretch.csv','w') as csvfile:
         header = ['src','dst','add_st','mul_st']
         file = csv.writer(csvfile, delimiter=',',quotechar='|', quoting=csv.QUOTE_MINIMAL)
         file.writerow(header)
@@ -71,18 +71,21 @@ def calc_all_stretch(cont):
 def RL_thread():
     cont = 0
     # while cont < 836:
-    while cont < 30:
+    while cont < 28:
         a = time.time()
         data = pd.read_csv("./net_info.csv")
         paths, time_RL = get_all_paths(data)
-        # print('time_RL',time_RL)
+        
+        net_info = pd.DataFrame(data)
+
+        print('time_RL',time_RL)
         time_stretch = calc_all_stretch(cont)
-        # print('time_stretch' , time_stretch)
+        print('time_stretch' , time_stretch)
         if time_RL > 10:
             time.sleep(time_RL + time_stretch)
         else:
             time.sleep(10 - time_RL - time_stretch)
         cont = cont + 1
-        # print(time.time()-a)
+        print(time.time()-a)
 RL_thread()
 #call_bot("RL-thread ended")

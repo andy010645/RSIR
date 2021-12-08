@@ -5,6 +5,7 @@ import time
 from ryu import cfg
 from ryu.base import app_manager
 from ryu.controller import ofp_event
+from ryu.base.app_manager import lookup_service_brick
 from ryu.controller.handler import MAIN_DISPATCHER
 from ryu.controller.handler import CONFIG_DISPATCHER
 from ryu.controller.handler import DEAD_DISPATCHER
@@ -20,7 +21,6 @@ from ryu.topology.api import get_switch, get_link
 
 import setting
 
-
 CONF = cfg.CONF
 
 
@@ -34,6 +34,7 @@ class simple_Awareness(app_manager.RyuApp):
     """
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
+    # List the event list should be listened.
     events = [event.EventSwitchEnter,
               event.EventSwitchLeave, event.EventPortAdd,
               event.EventPortDelete, event.EventPortModify,
@@ -49,14 +50,16 @@ class simple_Awareness(app_manager.RyuApp):
         self.access_ports = {}                # {dpid:set(port_num,),}
         self.interior_ports = {}              # {dpid:set(port_num,),}
         self.switches = []                    # self.switches = [dpid,]
+        self.shortest_paths = {}              # {dpid:{dpid:[[path],],},}
         self.pre_link_to_port = {}
         self.pre_access_table = {}
 
         self.graph = nx.DiGraph()
         # Get initiation delay.
-        self.initiation_delay = 20 #self.get_initiation_delay(CONF.fanout)
+        self.initiation_delay = self.get_initiation_delay(4)
         self.start_time = time.time()
 
+        # Start a green thread to discover network resource.
         self.discover_thread = hub.spawn(self._discover)
 
 
@@ -65,7 +68,7 @@ class simple_Awareness(app_manager.RyuApp):
         while True:
 
             self.show_topology()
-            if i == 1:  
+            if i == 1:   
                 self.get_topology(None)
                 i = 0
             hub.sleep(setting.DISCOVERY_PERIOD)
@@ -92,6 +95,8 @@ class simple_Awareness(app_manager.RyuApp):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         self.logger.info("switch:%s connected", datapath.id)
+
+
         # Install table-miss flow entry.
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
@@ -108,13 +113,13 @@ class simple_Awareness(app_manager.RyuApp):
         datapath = msg.datapath
         in_port = msg.match['in_port']
         pkt = packet.Packet(msg.data)
-        eth_type = pkt.get_protocols(ethernet.ethernet)[0].ethertype 
+        eth_type = pkt.get_protocols(ethernet.ethernet)[0].ethertype #delay
         arp_pkt = pkt.get_protocol(arp.arp)
         ip_pkt = pkt.get_protocol(ipv4.ipv4)
 
         if arp_pkt:
             arp_src_ip = arp_pkt.src_ip
-            arp_dst_ip = arp_pkt.dst_ip 
+            arp_dst_ip = arp_pkt.dst_ip #delay
             mac = arp_pkt.src_mac
             # Record the access infomation.
             self.register_access_info(datapath.id, in_port, arp_src_ip, mac)
@@ -149,12 +154,12 @@ class simple_Awareness(app_manager.RyuApp):
         self.create_access_ports()
         self.graph = self.get_graph(self.link_to_port.keys())
 
-
     def get_host_location(self, host_ip):
         """
             Get host location info ((datapath, port)) according to the host ip.
             self.access_table = {(sw,port):(ip, mac),}
         """
+
         for key in self.access_table.keys():
             if self.access_table[key][0] == host_ip:
                 return key
@@ -199,6 +204,7 @@ class simple_Awareness(app_manager.RyuApp):
             self.interior_ports.setdefault(dpid, set())
             self.access_ports.setdefault(dpid, set())
             for port in sw.ports:
+                # switch_port_table = {dpid:set(port_num,),}
                 self.switch_port_table[dpid].add(port.port_no)
 
     def create_interior_links(self, link_list):
@@ -209,7 +215,7 @@ class simple_Awareness(app_manager.RyuApp):
         for link in link_list:
             src = link.src
             dst = link.dst
-            self.link_to_port[(src.dpid, dst.dpid)] = (src.port_no, dst.port_no) # find link port 2 port
+            self.link_to_port[(src.dpid, dst.dpid)] = (src.port_no, dst.port_no)
             # Find the access ports and interior ports.
             if link.src.dpid in self.switches:
                 self.interior_ports[link.src.dpid].add(link.src.port_no)
@@ -226,7 +232,7 @@ class simple_Awareness(app_manager.RyuApp):
             # That comes the access port of the switch.
             self.access_ports[sw] = all_port_table - interior_port
 
-    def register_access_info(self, dpid, in_port, ip, mac): # 
+    def register_access_info(self, dpid, in_port, ip, mac):
         """
             Register access host info into access table.
         """
@@ -243,11 +249,11 @@ class simple_Awareness(app_manager.RyuApp):
                 return
 
     def show_topology(self):
-        if self.pre_link_to_port != self.link_to_port:
+        if self.pre_link_to_port != self.link_to_port:# and setting.TOSHOW:
             # It means the link_to_port table has changed.
             _graph = self.graph.copy()
             '''
-            print ("\n---------------------Link Port---------------------")
+            print "\n---------------------Link Port---------------------"
             print '%6s' % ('switch'),
             for node in sorted([node for node in _graph.nodes()], key=lambda node: node):
                 print '%6d' % node,
@@ -264,7 +270,7 @@ class simple_Awareness(app_manager.RyuApp):
             '''
             self.pre_link_to_port = self.link_to_port.copy()
 
-        if self.pre_access_table != self.access_table:
+        if self.pre_access_table != self.access_table:# and setting.TOSHOW:
             # It means the access_table has changed.
             print ("\n----------------Access Host-------------------")
             print ('%10s' % 'switch', '%10s' % 'port', '%22s' % 'Host')
@@ -279,4 +285,3 @@ class simple_Awareness(app_manager.RyuApp):
         # nx.draw(self.graph)
         # plt.show()
         # plt.savefig("/home/controlador/ryu/ryu/app/SDNapps_proac/%d.png" % int(time.time()))
-

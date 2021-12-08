@@ -35,8 +35,6 @@ class simple_Monitor(app_manager.RyuApp):
     """
 
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
-    _CONTEXTS = {"simple_awareness": simple_awareness.simple_Awareness,
-                 "simple_delay": simple_delay.simple_Delay}
 
     def __init__(self, *args, **kwargs):
         super(simple_Monitor, self).__init__(*args, **kwargs)
@@ -58,10 +56,10 @@ class simple_Monitor(app_manager.RyuApp):
         self.stats = {}
         self.port_features = {}
         self.free_bandwidth = {}
-        self.awareness = kwargs["simple_awareness"]
-        self.delay = kwargs["simple_delay"]
         self.paths = {}
         self.installed_paths = {}
+        self.awareness = lookup_service_brick('awareness')
+        self.delay = lookup_service_brick('delay')
 
         self.monitor_thread = hub.spawn(self.monitor)
 
@@ -81,6 +79,7 @@ class simple_Monitor(app_manager.RyuApp):
             if datapath.id in self.datapaths:
                 self.logger.debug('Datapath unregistered: %016x', datapath.id)
                 print ('Datapath unregistered:', datapath.id)
+                print ("FUCK")
                 del self.datapaths[datapath.id]
         
     def monitor(self):
@@ -88,59 +87,32 @@ class simple_Monitor(app_manager.RyuApp):
             Main entry method of monitoring traffic.
         """
         while True:
-            self.count_monitor += 1
             self.stats['flow'] = {}
             self.stats['port'] = {}
             print("[Statistics Module Ok]")
             print("[{0}]".format(self.count_monitor))
+            if self.delay is None:
+                print('No monitor')
+                self.delay = lookup_service_brick('delay')
             for dp in self.datapaths.values():
-                self.port_features.setdefault(dp.id, {})
+                self.port_features.setdefault(dp.id, {}) #setdefault() returns the value of the item with the specified key
                 self.paths = None
                 self.request_stats(dp)
-
-            if self.awareness.link_to_port:
-                    self.flow_install_monitor()
-
+            hub.sleep(0.9)
+            
             if self.stats['port']:
+                self.count_monitor += 1
                 self.get_port_loss()
                 self.get_link_free_bw()
                 self.get_link_used_bw()
-                print("-------------------------------------------------\n",time.time(),"\n-------------------------------------------------")
                 self.write_values()
                 
             hub.sleep(setting.MONITOR_PERIOD)
-            if self.stats['port']: 
+            if self.stats['port']:
                 self.show_stat('link') 
                 hub.sleep(1)
-
-#---------------------CONTROL PLANE FUNCTIONS----------------------------------------
-#---------------------FLOW INSTALLATION MODULE FUNCTIONS ----------------------------  
-
-    def flow_install_monitor(self): 
-        print("[Flow Installation Ok]")
-        out_time= time.time()
-        for dp in self.datapaths.values():   
-            for dp2 in self.datapaths.values():
-                if dp.id != dp2.id:
-                    ip_src = '10.0.0.'+str(dp.id) 
-                    ip_dst = '10.0.0.'+str(dp2.id)
-                    self.forwarding(dp.id, ip_src, ip_dst, dp.id, dp2.id)
-                    time.sleep(0.0005)
-        end_out_time = time.time()
-        out_total_ = end_out_time - out_time
-        # print("FLow installation ends in: {0}s".format(out_total_))
-        return 
-
-    def forwarding(self, dpid, ip_src, ip_dst, src_sw, dst_sw):
-        """
-            Get paths and install them into datapaths.
-        """
-
-        self.installed_paths.setdefault(dpid, {})
-        path = self.get_path(str(src_sw), str(dst_sw))
-        self.installed_paths[src_sw][dst_sw] = path 
-        flow_info = (ip_src, ip_dst)
-        self.install_flow(self.datapaths, self.awareness.link_to_port, path, flow_info)
+#---------------------CONTROL PLANE FUNCTIONS---------------------------------
+#---------------------STATISTICS MODULE FUNCTIONS ---------------------------- 
 
     def request_stats(self, datapath): #OK
         self.logger.debug('send stats request: %016x', datapath.id)
@@ -156,196 +128,7 @@ class simple_Monitor(app_manager.RyuApp):
         req = parser.OFPPortStatsRequest(datapath, 0, ofproto.OFPP_ANY) 
         datapath.send_msg(req)
 
-    def install_flow(self, datapaths, link_to_port, path,
-                     flow_info, data=None):
-        init_time_install = time.time()
-        ''' 
-            Install flow entires.
-            path=[dpid1, dpid2...]
-            flow_info=(src_ip, dst_ip)
-        '''
-        if path is None or len(path) == 0:
-            self.logger.info("Path error!")
-            return
-        
-        in_port = 1
-        first_dp = datapaths[path[0]]
-
-        out_port = first_dp.ofproto.OFPP_LOCAL
-        back_info = (flow_info[1], flow_info[0])
-
-        # Flow installing por middle datapaths in path
-        if len(path) > 2:
-            for i in range(1, len(path)-1):
-                port = self.get_port_pair_from_link(link_to_port,
-                                                    path[i-1], path[i])
-                port_next = self.get_port_pair_from_link(link_to_port,
-                                                         path[i], path[i+1])
-                if port and port_next:
-                    src_port, dst_port = port[1], port_next[0]
-                    datapath = datapaths[path[i]]
-                    self.send_flow_mod(datapath, flow_info, src_port, dst_port)
-                    self.send_flow_mod(datapath, back_info, dst_port, src_port)
-        if len(path) > 1:
-            # The last flow entry
-            port_pair = self.get_port_pair_from_link(link_to_port,
-                                                     path[-2], path[-1])
-            if port_pair is None:
-                self.logger.info("Port is not found")
-                return
-            src_port = port_pair[1]
-            dst_port = 1 #I know that is the host port 
-            last_dp = datapaths[path[-1]]
-            self.send_flow_mod(last_dp, flow_info, src_port, dst_port)
-            self.send_flow_mod(last_dp, back_info, dst_port, src_port)
-
-            # The first flow entry
-            port_pair = self.get_port_pair_from_link(link_to_port, path[0], path[1])
-            if port_pair is None:
-                self.logger.info("Port not found in first hop.")
-                return
-            out_port = port_pair[0]
-            self.send_flow_mod(first_dp, flow_info, in_port, out_port)
-            self.send_flow_mod(first_dp, back_info, out_port, in_port)
-
-        # src and dst on the same datapath
-        else:
-            out_port = 1
-            self.send_flow_mod(first_dp, flow_info, in_port, out_port)
-            self.send_flow_mod(first_dp, back_info, out_port, in_port)
-
-        end_time_install = time.time()
-        total_install = end_time_install - init_time_install
-
-    def send_flow_mod(self, datapath, flow_info, src_port, dst_port):
-        """
-            Build flow entry, and send it to datapath.
-        """
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-        actions = []
-        actions.append(parser.OFPActionOutput(dst_port))
-
-        match = parser.OFPMatch(
-             eth_type=ETH_TYPE_IP, ipv4_src=flow_info[0], 
-             ipv4_dst=flow_info[1])
-
-        self.add_flow(datapath, 1, match, actions,
-                      idle_timeout=250, hard_timeout=0)
-        
-
-    def add_flow(self, dp, priority, match, actions, idle_timeout=0, hard_timeout=0):
-        """
-            Send a flow entry to datapath.
-        """
-        ofproto = dp.ofproto
-        parser = dp.ofproto_parser
-        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
-        mod = parser.OFPFlowMod(datapath=dp, command=dp.ofproto.OFPFC_ADD, priority=priority,
-                                idle_timeout=idle_timeout,
-                                hard_timeout=hard_timeout,
-                                match=match, instructions=inst)
-        dp.send_msg(mod)
-
-    def del_flow(self, datapath, dst):
-        """
-            Deletes a flow entry of the datapath.
-        """
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-
-        match = parser.OFPMatch(eth_type=ETH_TYPE_IP, ipv4_src=flow_info[0],ipv4_dst=flow_info[1])
-        mod = parser.OFPFlowMod(datapath=datapath, match=match, cookie=0,command=ofproto.OFPFC_DELETE)
-        datapath.send_msg(mod)
-
-    def build_packet_out(self, datapath, buffer_id, src_port, dst_port, data):
-        """
-            Build packet out object.
-        """
-        actions = []
-        if dst_port:
-            actions.append(datapath.ofproto_parser.OFPActionOutput(dst_port))
-
-        msg_data = None
-        if buffer_id == datapath.ofproto.OFP_NO_BUFFER:
-            if data is None:
-                return None
-            msg_data = data
-
-        out = datapath.ofproto_parser.OFPPacketOut(
-            datapath=datapath, buffer_id=buffer_id,
-            data=msg_data, in_port=src_port, actions=actions)
-        return out
-
-    def arp_forwarding(self, msg, src_ip, dst_ip):
-        """
-            Send ARP packet to the destination host if the dst host record
-            is existed.
-            result = (datapath, port) of host
-        """
-        datapath = msg.datapath
-        ofproto = datapath.ofproto
-
-        result = self.awareness.get_host_location(dst_ip)
-        if result:
-            # Host has been recorded in access table.
-            datapath_dst, out_port = result[0], result[1]
-            datapath = self.datapaths[datapath_dst]
-            out = self.build_packet_out(datapath, ofproto.OFP_NO_BUFFER,
-                                         ofproto.OFPP_CONTROLLER,
-                                         out_port, msg.data)
-            datapath.send_msg(out)
-            self.logger.debug("Deliver ARP packet to knew host")
-        else:
-            # self.flood(msg)
-            pass
-
-    def get_port_pair_from_link(self, link_to_port, src_dpid, dst_dpid):
-        """
-            Get port pair of link, so that controller can install flow entry.
-            link_to_port = {(src_dpid,dst_dpid):(src_port,dst_port),}
-        """
-        if (src_dpid, dst_dpid) in link_to_port:
-            return link_to_port[(src_dpid, dst_dpid)]
-        else:
-            self.logger.info("Link from dpid:%s to dpid:%s is not in links" %
-             (src_dpid, dst_dpid))
-            return None 
-
-    def get_path(self, src, dst):
-        
-            if self.paths != None:
-                # print ('PATHS: OK')
-                path = self.paths.get(src).get(dst)[0]
-                return path
-            else:
-                # print('Getting paths: OK')
-                paths = self.get_RL_paths()
-                path = paths.get(src).get(dst)[0]
-                return path
-
-    def get_RL_paths(self):
-
-        file = './paths.json'
-        try:
-            with open(file,'r') as json_file:
-                paths_dict = json.load(json_file)
-                paths_dict = ast.literal_eval(json.dumps(paths_dict))
-                self.paths = paths_dict
-                return self.paths
-        except ValueError as e: #error excpetion when trying to read the json and is still been updated
-            return
-        else:
-            with open(file,'r') as json_file: #try again
-                paths_dict = json.load(json_file)
-                paths_dict = ast.literal_eval(json.dumps(paths_dict))
-                self.paths = paths_dict
-                return self.paths
-
-#---------------------CONTROL PLANE -----------------------------------------
-#-----------------------STATISTICS MODULE FUNCTIONS -------------------------
-
-    def save_stats(self, _dict, key, value, length=5): #Save values in dics (max len 5)
+    def save_stats(self, _dict, key, value, length=5): 
         if key not in _dict:
             _dict[key] = []
         _dict[key].append(value)
@@ -371,6 +154,7 @@ class simple_Monitor(app_manager.RyuApp):
             if key[0] == dpid and src_port == out_port:
                 dst_sw = key[1]
                 dst_port = self.awareness.link_to_port[key][1]
+                # print(dst_sw,dst_port)
                 return (dst_sw, dst_port)
 
     def get_link_bw(self, file, src_dpid, dst_dpid):
@@ -382,14 +166,14 @@ class simple_Monitor(app_manager.RyuApp):
                 s1 = a[0]
                 s2 = a[1]
                 # bwd = a[2] #random capacities
-                bwd = a[3] #original capacities
+                bwd = a[3] #original caps
                 bw_capacity_dict.setdefault(s1,{})
                 bw_capacity_dict[str(a[0])][str(a[1])] = bwd
         fin.close()
         bw_link = bw_capacity_dict[str(src_dpid)][str(dst_dpid)]
         return bw_link
 
-    def get_free_bw(self, port_capacity, speed):
+    def get_free_bw(self, port_capacity, speed): 
         # freebw: Kbit/s
         return max(port_capacity - (speed/ 1000.0), 0)
 
@@ -404,7 +188,7 @@ class simple_Monitor(app_manager.RyuApp):
                                 key=lambda flow: (flow.match.get('ipv4_src'),flow.match.get('ipv4_dst')))
             for stat in list_flows:
                 out_port = stat.instructions[0].actions[0].port
-                if self.awareness.link_to_port and out_port != 1: #get loss from ports of network
+                if self.awareness.link_to_port and out_port != 1: #get loss form ports of network
                     key = (stat.match.get('ipv4_src'), stat.match.get('ipv4_dst'))
                     tmp1 = self.flow_stats[dp][key]
                     byte_count_src = tmp1[-1][1]
@@ -445,7 +229,7 @@ class simple_Monitor(app_manager.RyuApp):
                 # tx_dst = self.port_loss[key2[0]][key2][-1][1]
                 loss_l = (abs(loss_src) + abs(loss_dst)) / 2
                 link = (dp, key2[0])
-                self.link_loss[link] = loss_l*100.0   
+                self.link_loss[link] = loss_l*100.0 #loss in porcentage  
 
     def get_link_free_bw(self):
         #Calculates the total free bw of link and save it in self.link_free_bw[(node1,node2)]:link_free_bw
@@ -457,7 +241,7 @@ class simple_Monitor(app_manager.RyuApp):
                 link_free_bw = (free_bw1 + free_bw2)/2
                 link = (dp, key2[0])
                 self.link_free_bw[link] = link_free_bw
-
+        
     def get_link_used_bw(self):
         #Calculates the total free bw of link and save it in self.link_free_bw[(node1,node2)]:link_free_bw
         for key in self.port_speed.keys():
@@ -468,42 +252,10 @@ class simple_Monitor(app_manager.RyuApp):
             link = (key[0], key2[0])
             self.link_used_bw[link] = link_used_bw
 
-    def write_values(self):
-        a = time.time()
-        if self.delay.link_delay:
-            for link in self.link_free_bw:
-                self.net_info[link] = [round(self.link_free_bw[link],6) , round(self.delay.link_delay[link],6), round(self.link_loss[link],6)]
-                self.net_metrics[link] = [round(self.link_free_bw[link],6), round(self.link_used_bw[link],6), round(self.delay.link_delay[link],6), round(self.link_loss[link],6)]
-            print("start writing net_info.csv")
-            with open('./net_info.csv','w') as csvfile:
-                header_names = ['node1','node2','bwd','delay','pkloss']
-                file = csv.writer(csvfile, delimiter=',',quotechar='|', quoting=csv.QUOTE_MINIMAL)
-                links_in = []
-                file.writerow(header_names)
-                for link, values in sorted(self.net_info.items()):
-                    links_in.append(link)
-                    tup = (link[1], link[0])
-                    if tup not in links_in:
-                        file.writerow([link[0],link[1], values[0],values[1],values[2]])
-
-            file_metrics = './Metrics/'+str(self.count_monitor)+'_net_metrics.csv'
-            with open(file_metrics,'w') as csvfile:
-                header_ = ['node1','node2','free_bw','used_bw','delay','pkloss']
-                file = csv.writer(csvfile, delimiter=',',quotechar='|', quoting=csv.QUOTE_MINIMAL)
-                links_in = []
-                file.writerow(header_)
-                for link, values in sorted(self.net_metrics.items()):
-                    links_in.append(link)
-                    tup = (link[1], link[0])
-                    if tup not in links_in:
-                        file.writerow([link[0],link[1],values[0],values[1]/1000,values[2],values[3]]) 
-            b = time.time()            
-            return
-
 #---------------------CONTROL PLANE FUNCTIONS---------------------------------
 #---------------------STATISTICS MODULE FUNCTIONS ----------------------------
 
-    @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
+    @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER) #OK
     def flow_stats_reply_handler(self, ev):
         """
             Save flow stats reply information into self.flow_stats.
@@ -540,7 +292,7 @@ class simple_Monitor(app_manager.RyuApp):
             
             value = (stat.packet_count, stat.byte_count,
                      stat.duration_sec, stat.duration_nsec)#duration_sec: Time flow was alive in seconds
-                                                           #duration_nsec: Time flow was alive in nanoseconds beyond duration_sec                                           
+                                                           #duration_nsec: Time flow was alive in nanoseconds beyond duration_sec
             self.save_stats(self.flow_stats[dpid], key, value, 5)
 
             # CALCULATE FLOW BYTE RATE 
@@ -560,6 +312,7 @@ class simple_Monitor(app_manager.RyuApp):
         a = time.time()
         body = ev.msg.body
         dpid = ev.msg.datapath.id
+
         self.stats['port'][dpid] = body
         self.free_bandwidth.setdefault(dpid, {})
         self.port_loss.setdefault(dpid, {})
@@ -568,7 +321,9 @@ class simple_Monitor(app_manager.RyuApp):
             Calculate port speed and Save it.
             self.port_stats = {(dpid, port_no):[(tx_bytes, rx_bytes, rx_errors, duration_sec,  duration_nsec),],}
             self.port_speed = {(dpid, port_no):[speed,],}
-                    
+            Note: The transmit performance and receive performance are independent of a port.
+            Calculate the load of a port only using tx_bytes.
+        
         Replay message content:
             (stat.port_no,
              stat.rx_packets, stat.tx_packets,
@@ -580,13 +335,14 @@ class simple_Monitor(app_manager.RyuApp):
              stat.duration_sec, stat.duration_nsec))
         """
 
-        for stat in sorted(body, key=attrgetter('port_no')):
+        for stat in sorted(body, key=attrgetter('port_no')): #get the value of port_no form body
             port_no = stat.port_no
-            key = (dpid, port_no) 
+            key = (dpid, port_no) #src_dpid, src_port
             value = (stat.tx_bytes, stat.rx_bytes, stat.rx_errors,
                      stat.duration_sec, stat.duration_nsec, stat.tx_errors, stat.tx_dropped, stat.rx_dropped, stat.tx_packets, stat.rx_packets)
             self.save_stats(self.port_stats, key, value, 5)
-            if port_no != ofproto_v1_3.OFPP_LOCAL:        
+
+            if port_no != ofproto_v1_3.OFPP_LOCAL: #si es dif de puerto local del sw donde se lee port        
                 if port_no != 1 and self.awareness.link_to_port :
                     # Get port speed and Save it.
                     pre = 0
@@ -600,9 +356,9 @@ class simple_Monitor(app_manager.RyuApp):
                     self.save_stats(self.port_speed, key, speed, 5)
                     
                     #Get links capacities
-                    
-                    file = './bw_r.txt' # link capacities
+                    file = './bw_r.txt'
                     link_to_port = self.awareness.link_to_port
+
                     for k in list(link_to_port.keys()):
                         if k[0] == dpid:
                             if link_to_port[k][0] == port_no:
@@ -620,7 +376,7 @@ class simple_Monitor(app_manager.RyuApp):
                                     bw_link_kbps = bw_link * 1000.0
                                     self.port_features[dpid][port_no].append(bw_link_kbps)                     
                                     free_bw = self.get_free_bw(bw_link_kbps, speed)
-                                    self.free_bandwidth[dpid][port_no] = free_bw  
+                                    self.free_bandwidth[dpid][port_no] = free_bw    
 
     @set_ev_cls(ofp_event.EventOFPPortDescStatsReply, MAIN_DISPATCHER)
     def port_desc_stats_reply_handler(self, ev):
@@ -687,17 +443,26 @@ class simple_Monitor(app_manager.RyuApp):
         else:
             print ("switch%d: Illegal port state %s %s" % (dpid, port_no, reason))
 
-    @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
-    def packet_in_handler(self, ev):
-        '''
-            In packet_in handler, we need to learn access_table by ARP and IP packets.
-            Therefore, the first packet from UNKOWN host MUST be ARP
-        '''
-        msg = ev.msg
-        pkt = packet.Packet(msg.data)
-        arp_pkt = pkt.get_protocol(arp.arp)
-        if isinstance(arp_pkt, arp.arp):
-            self.arp_forwarding(msg, arp_pkt.src_ip, arp_pkt.dst_ip)
+    def write_values(self):
+        a = time.time()
+        if self.delay.link_delay:
+            for link in self.link_free_bw:
+                self.net_info[link] = [round(self.link_free_bw[link],6) , round(self.delay.link_delay[link],6), round(self.link_loss[link],6)]
+                self.net_metrics[link] = [round(self.link_free_bw[link],6), round(self.link_used_bw[link],6), round(self.link_loss[link],6), round(self.delay.link_delay[link],6)]
+        
+            file_metrics = './Metrics/'+str(self.count_monitor)+'_net_metrics.csv'
+            with open(file_metrics,'w') as csvfile:
+                header_ = ['node1','node2','free_bw','used_bw', 'pkloss', 'delay']
+                file = csv.writer(csvfile, delimiter=',',quotechar='|', quoting=csv.QUOTE_MINIMAL)
+                links_in = []
+                file.writerow(header_)
+                for link, values in sorted(self.net_metrics.items()):
+                    links_in.append(link)
+                    tup = (link[1], link[0])
+                    if tup not in links_in:
+                        file.writerow([link[0],link[1],values[0],values[1]/1000,values[2],values[3]]) 
+            b = time.time()            
+            return
     
     def show_stat(self, _type):
         '''
@@ -717,6 +482,7 @@ class simple_Monitor(app_manager.RyuApp):
             for dpid in bodies.keys():
                 for stat in sorted(
                     [flow for flow in bodies[dpid] if flow.priority == 1],
+                    # key=lambda flow: (flow.match.get('in_port'),
                     key=lambda flow: (flow.match.get('ipv4_src'),
                                       flow.match.get('ipv4_dst'))):
                     key = (stat.match.get('ipv4_src'), stat.match.get('ipv4_dst'))
@@ -725,7 +491,9 @@ class simple_Monitor(app_manager.RyuApp):
                         stat.match['ipv4_src'], stat.match['ipv4_dst'], #flow match
                         stat.instructions[0].actions[0].port, #port
                         stat.packet_count, stat.byte_count,
-                        abs(self.flow_speed[dpid][key][-1])))
+                        abs(self.flow_speed[dpid][key][-1])))#,
+                        # abs(self.flow_loss[dpid][  #flow loss
+                        #     (stat.match.get('ipv4_src'),stat.match.get('ipv4_dst'))][-1])))
             print()
 
         if _type == 'port': #and self.awareness.link_to_port:
@@ -739,7 +507,6 @@ class simple_Monitor(app_manager.RyuApp):
                 '-------------  ---------------  -----------------  '
                 '----------  ----------')
             format_ = '{:>8}  {:>4}  {:>9}  {:>11}  {:>9}  {:>11}  {:>13.3f}  {:>15.5f}  {:>17.5f}  {:>10}  {:>10}  {:>10}  {:>10}'
-            
 
             for dpid in sorted(bodies.keys()):
                 for stat in sorted(bodies[dpid], key=attrgetter('port_no')):
@@ -759,10 +526,10 @@ class simple_Monitor(app_manager.RyuApp):
             print() 
 
         if _type == 'link':
-            print('\nnode1  node2  used-bw(Kb/s)   free-bw(Kb/s)    latency(ms)     loss')
-            print('-----  -----  --------------   --------------   -----------    ---- ')
+            print('\nnode1  node2  used-bw(Kb/s)   free-bw(Kb/s)   latency    loss')
+            print('-----  -----  --------------   --------------   ----------    ---- ')
             
-            format_ = '{:>5}  {:>5} {:>14.5f}  {:>14.5f}  {:>12}  {:>12}'
+            format_ = '{:>5}  {:>5} {:>14.5f}  {:>14.5f} {:>10} {:>12}'
             
             links_in = []
             for link, values in sorted(self.net_info.items()):
@@ -771,4 +538,4 @@ class simple_Monitor(app_manager.RyuApp):
                 if tup not in links_in:
                     print(format_.format(link[0],link[1],
                         self.link_used_bw[link]/1000.0,
-                        values[0], values[1], values[2]))
+                        values[0], values[1],values[2]))

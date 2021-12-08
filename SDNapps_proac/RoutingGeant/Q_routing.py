@@ -2,6 +2,8 @@ import random
 from get_all_routes import get_best_nodes
 import numpy as np
 import time
+import json
+
 def update_Q(T,Q,current_state, next_state, alpha):
     current_t = T[current_state][next_state]
     current_q = Q[current_state][next_state]
@@ -47,16 +49,26 @@ def Q_routing(T,Q,alpha,epsilon,n_episodes,start,end): #Fill Q table and explore
             else:
                 best_action = random.choice(get_key_of_min_value(Q[current_state]))
                 if random.random() < epsilon:
+                    #print("GREEDY")
                     next_state = best_action
                 else:
+                    #print("RANDOM")
                     valid_moves.pop(valid_moves.index(best_action))
                     next_state = random.choice(valid_moves)
             Q = update_Q(T,Q,current_state, next_state, alpha)
             current_state = next_state
             stored_states.append(next_state)
-
             if next_state in end:
                 goal = True
+
+        #     episode_hops[e] = stored_states
+        # if start == 8 and end == [23]:
+        #     with open(str(alpha)+'_'+str(epsilon)+'_'+'hops_episodes.json', 'w') as json_file:
+        #         json.dump(episode_hops, json_file, indent=1)
+
+
+
+
         #     print('Q-table:', Q)
         #     print('Switches', stored_states)
         #     episode_hops[e] = stored_states

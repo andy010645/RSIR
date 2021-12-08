@@ -7,5 +7,3 @@ cd ..
 #cd ~/ryu/ryu/app/SDNapps_proac/RoutingGeant/stretch
 cd RoutingGeant/stretch
 sudo rm *stretch*
-
-
