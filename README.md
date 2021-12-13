@@ -33,7 +33,7 @@
 所以我們需要自己對此做出修改
 
 1. 進入ryu/ryu/topology/switches.py
-2. class PortData 裡的init多加一個self.delay = 0
+2. class PortData 裡的init多加一個self.delay = 0  
 ![](https://i.imgur.com/E9RPmRz.png)
 3. 在lldp_packet_in_handler開頭先新增一行code : recv_timestamp = time.time()
 4. 將fix版本code的714行後的get the lldp delay code 複製
