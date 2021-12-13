@@ -4,6 +4,7 @@ import os
 from sys import argv
 import statistics
 import pickle
+import time
 
 import matplotlib
 matplotlib.use("agg")
@@ -40,7 +41,7 @@ for tm in tms:
                 # print("Folder created:", nameNode )
 
     # Default parameters
-    time_duration = 30
+    time_duration = 3000
     port = 5201
     ip_dest = "10.0.0.1"
     throughput = 0.0 #take it in kbps from TM
@@ -105,9 +106,9 @@ for tm in tms:
                 temp1 += '-u -b '+str(format(throughput,'.3f'))+'k'
                 temp1 += ' -w 256k -t '+str(time_duration)
                 # if src_ > 9: 
-                #     temp1 += ' -J --logfile clientOutputs/'+str(nameTM)+'/client_{0}/clientOutput_{1}_to_{2}.json'.format(str(src_),str(src_),str(dst_))
+                #     temp1 += ' > 23nodos/clientOutputs/'+str(nameTM)+'/client_{0}/clientOutput_{1}_to_{2}.log'.format(str(src_),str(src_),str(dst_))
                 # else:
-                #     temp1 += ' -J --logfile clientOutputs/'+str(nameTM)+'/client_0{0}/clientOutput_{1}_to_{2}.json'.format(str(src_),str(src_),str(dst_))
+                #     temp1 += ' > 23nodos/clientOutputs/'+str(nameTM)+'/client_0{0}/clientOutput_{1}_to_{2}.log'.format(str(src_),str(src_),str(dst_))
                 # if n != dst_amounts[src]: #When it is the last command, it does not include &
                 temp1 += ' &\n' # & at the end of the line it's for running the process in bkg
                 temp1 += 'sleep 0.4'
@@ -164,6 +165,8 @@ for tm in tms:
 
     total_load_list.append(total)
     mean_loads_list.append(mean)
+    print(total_load_list)
+    input()
 
     # print('Total load of TM {0}: {1}'.format(name, mean))
     print('Mean load of TM {0}: {1}'.format(nameTM, total))

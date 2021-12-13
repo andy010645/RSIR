@@ -31,7 +31,7 @@ Please refer to https://github.com/progwriter/TMgen for installing the library.
 """
 num_nodes = 23
 num_tms = 24
-mean_traffic = 10000 #per OD kbps -- 75% of link capacities in network
+mean_traffic = 6000 #per OD kbps -- 75% of link capacities in network
 pm_ratio = 1.5
 diurnal_freq = 1/24 #generates tms per hours of day
 t_ratio = .75
@@ -50,6 +50,7 @@ for i in range(num_tms):
     # print(tm.at_time(i).sum())
     total_load_tms_complete.append(tm.at_time(i).sum())
     # print()
+#print(mean_load_tms_complete)
 
 #choose randomly nodes for final traffic matrix
 rand_od = [random.random(num_nodes) for i in range (num_nodes)]
@@ -124,4 +125,4 @@ plt.close()
 print('Rec values:\n')
 with open('23Nodes_tms_info_14.pkl', 'rb') as f:
     rec_od_bin,rec_tms = pickle.load(f)
-print(rec_tms, rec_od_bin)
+#print(rec_tms, rec_od_bin)
