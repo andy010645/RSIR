@@ -39,7 +39,7 @@
 4. 將fix版本code的714行後的get the lldp delay code 複製
 ![image](https://user-images.githubusercontent.com/69691891/145552471-a11fbc18-a494-4e34-982c-6e88a861a27a.png)
 5. 將剛剛複製好的code貼到791行
-6. 上述動作執行完成後，回到ryu資料夾並執行python3 setup.py
+6. 上述動作執行完成後，回到ryu資料夾並執行python3 setup.py install
 
 ### ryu controller usage
 
