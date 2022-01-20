@@ -45,9 +45,9 @@
 
 建議將mininet主機以及controller主機分開
 
-* OSPF_bwd / OSPF_delay / OSPF_loss  / OSPF_all
+* OSPF_bwd / OSPF_delay / OSPF_loss  / OSPF_all  
 使用 ryu-manager --observe-link ospf_proac.py 執行controller
-* RSIR / DRSIR
+* RSIR / DRSIR  
 使用 ryu-manager --observe-link simple_monitor.py 執行controller  
 執行RL_threading使用RL agent進行轉發路徑的學習
 
