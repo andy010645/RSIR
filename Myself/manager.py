@@ -16,10 +16,6 @@ from ryu.lib.packet import arp
 
 from functools import reduce
 
-# import sys
-# sys.path.insert(0,'./RoutingGeant')
-# from main import get_all_paths
-# import pandas as pd
 import time
 
 import simple_awareness
@@ -32,17 +28,12 @@ import time
 
 class Manager(app_manager.RyuApp):
 
-    # _CONTEXTS = {"simple_delay": simple_delay.simple_Delay}#,
-                  # "simple_awareness": simple_awareness.simple_Awareness,
-                  #"simple_monitor": simple_monitor.simple_Monitor}
-
     def __init__(self, *args, **kwargs):
         super(Manager, self).__init__(*args, **kwargs)
         self.name = "manager"
         self.awareness = lookup_service_brick("awareness")
         self.delay = lookup_service_brick("delay")
         self.monitor = lookup_service_brick("monitor")
-        # self.delay = kwargs["simple_delay"]
 
         self.link_loss = {}
         self.net_info = {}
@@ -50,37 +41,6 @@ class Manager(app_manager.RyuApp):
         self.link_free_bw = {}
         self.link_used_bw = {}
         self.paths_metrics = {}
-        # self.bwd_paths = {}
-        # self.delay_paths = {}
-        # self.loss_paths = {}
-        
-
-    # def get_flow_loss(self):
-    #     #Get per flow loss
-    #     bodies = self.monitor.stats['flow']
-    #     for dp in bodies.keys():
-    #         list_flows = sorted([flow for flow in bodies[dp] if flow.priority == 1], 
-    #                             key=lambda flow: (flow.match.get('ipv4_src'),flow.match.get('ipv4_dst')))
-    #         for stat in list_flows:
-    #             out_port = stat.instructions[0].actions[0].port
-    #             if self.awareness.link_to_port and out_port != 1: #get loss form ports of network
-    #                 key = (stat.match.get('ipv4_src'), stat.match.get('ipv4_dst'))
-    #                 tmp1 = self.flow_stats[dp][key]
-    #                 # print('temp1 dp{0}, match: {1}: {2}'.format(dp,key,tmp1))
-    #                 byte_count_src = tmp1[-1][1]
-                    
-    #                 result = self.get_sw_dst(dp, out_port)
-    #                 dst_sw = result[0]
-    #                 tmp2 = self.flow_stats[dst_sw][key]
-    #                 # print('temp2 dp{0}, match: {1}: {2}'.format(dst_sw,key,tmp2))
-    #                 byte_count_dst = tmp2[-1][1]
-    #                 # print("----dp: {0}, byte count src:{1}".format(dst_sw, byte_count_dst))
-    #                 flow_loss = byte_count_src - byte_count_dst
-    #                 # # print("dpid: {0}, key: {1}, count_src: {2}, count_dst: {3}, loss: {4}".format(dpid,key,byte_count_src,byte_count_dst,flow_loss))
-    #                 self.save_stats(self.flow_loss[dp], key, flow_loss, 5)
-    #                 # print(self.flow_loss)
-
-    # ----------------------Link metrics ------------------------- 
     
     def get_port_loss(self):
         #Get loss_port
@@ -95,7 +55,6 @@ class Manager(app_manager.RyuApp):
             for stat in sorted(bodies[dp], key=attrgetter('port_no')):
                 if self.awareness.link_to_port and stat.port_no != 1 and stat.port_no != ofproto_v1_3.OFPP_LOCAL: #get loss form ports of network
                     key1 = (dp, stat.port_no)
-                    # print(self.port_stats)
                     tmp1 = self.monitor.port_stats[key1]
                     tx_bytes_src = tmp1[-1][0]
                     tx_pkts_src = tmp1[-1][8]
@@ -104,11 +63,8 @@ class Manager(app_manager.RyuApp):
                     tmp2 = self.monitor.port_stats[key2]
                     rx_bytes_dst = tmp2[-1][1]
                     rx_pkts_dst = tmp2[-1][9]
-                    # print('\ntemp1 dp{0}, key: {1}: tx {2}'.format(dp,key1,tx_pkts_src))
-                    # print('temp2 dp{0}, key: {1}: rx{2}'.format(key2[0],key2,rx_pkts_dst))
                     loss_port = float(tx_pkts_src - rx_pkts_dst) / tx_pkts_src #loss rate
                     values = (loss_port, key2)
-                    # print('tx_pkts: {0}, rx_pkts: {1}, loss: {2}'.format(tx_pkts_src, rx_pkts_dst, loss_port))
                     self.monitor.save_stats(self.monitor.port_loss[dp], key1, values, 5)
 
         #Calculates the total link loss and save it in self.link_loss[(node1,node2)]:loss
@@ -307,12 +263,8 @@ class Manager(app_manager.RyuApp):
         return bwd_paths_nodes,delay_paths_nodes,loss_paths_nodes
 
     def get_k_paths_metrics_dic(self,shortest_paths,bwd_links,delay_links,loss_links):
-        ''' escribe las metricas en un solo diccionario todas juntas distingiendo en el dic
-            con llaves 'bwd', 'delay','loss'
-            pahts_metrics[src][dst]['bwd']:[bwd1,...,bwdk], pahts_metrics[src][dst]['delay']:[delay1,...,delay2]
-        '''
+
         i = time.time()
-        # print('Entra paths metrics')
         metrics = ['bwd_paths','delay_paths','loss_paths']
         # print('------switches',self.awareness.switches)
         for sw in shortest_paths.keys():
@@ -334,7 +286,6 @@ class Manager(app_manager.RyuApp):
                     self.paths_metrics[src][dst][metrics[0]] = [bwd_paths_nodes]
                     self.paths_metrics[src][dst][metrics[1]] = [delay_paths_nodes]
                     self.paths_metrics[src][dst][metrics[2]] = [loss_paths_nodes]
-        # print('paths_metrics',self.paths_metrics)
         print('writing paths_metrics')
         
         with open('./paths_metrics.json','w') as json_file:

@@ -98,6 +98,7 @@ class simple_Monitor(app_manager.RyuApp):
                 self.manager.write_values()
                 
                 if self.manager.link_free_bw and self.shortest_paths:
+                    print("CHECK")
                     self.manager.get_k_paths_metrics_dic(self.shortest_paths,self.manager.link_free_bw, self.delay.link_delay, self.manager.link_loss)
 
                 self.show_stat('link')
@@ -344,13 +345,6 @@ class simple_Monitor(app_manager.RyuApp):
                 self.paths = paths_dict
                 # print(self.paths)
                 return self.paths
-
-        # else:
-        #     with open(file,'r') as json_file: #try again
-        #         paths_dict = json.load(json_file)
-        #         paths_dict = ast.literal_eval(json.dumps(paths_dict))
-        #         self.paths = paths_dict
-        #         return self.paths
 
     #-----------------------STATISTICS MODULE FUNCTIONS -------------------------
     def save_stats(self, _dict, key, value, length=5): #Save values in dics (max len 5)
