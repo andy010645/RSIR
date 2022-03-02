@@ -47,8 +47,6 @@ class simple_Awareness(app_manager.RyuApp):
         super(simple_Awareness, self).__init__(*args, **kwargs)
         self.topology_api_app = self
         self.name = "awareness"
-
-        # self.shortest_paths = self.get_k_paths()              # {dpid:{dpid:[[path],],},}
         self.link_to_port = {}                # {(src_dpid,dst_dpid):(src_port,dst_port),}
         self.access_table = {}                # {(sw,port):(ip, mac),}
         self.switch_port_table = {}           # {dpid:set(port_num,),}
@@ -58,27 +56,19 @@ class simple_Awareness(app_manager.RyuApp):
         
         self.pre_link_to_port = {}
         self.pre_access_table = {}
-        # self.monitor = lookup_service_brick('monitor')
-
         self.graph = nx.DiGraph()
-        # Get initiation delay.
-        self.initiation_delay = self.get_initiation_delay(8) # self.get_initiation_delay(CONF.fanout)
+        self.initiation_delay = 10 # # Get initiation delay.
         self.start_time = time.time()
 
-        # Start a green thread to discover network resource.
         self.discover_thread = hub.spawn(self._discover)
         
 
     def _discover(self):
-        i = 0
-                    
-        while True:                       
-            if i == 1:   # Reload topology every 20 seconds.
-                self.get_topology(None)
-                self.show_topology()
-                i = 0
-            hub.sleep(setting.DISCOVERY_PERIOD)
-            i = i + 1
+    
+        time.sleep(self.initiation_delay)
+        self.get_topology(None)
+        #self.show_topology()
+
 
     def add_flow(self, dp, priority, match, actions, idle_timeout=0, hard_timeout=0):
         ofproto = dp.ofproto
@@ -91,38 +81,15 @@ class simple_Awareness(app_manager.RyuApp):
                                 match=match, instructions=inst)
         dp.send_msg(mod)
 
-    @set_ev_cls(ofp_event.EventOFPStateChange,
-                [MAIN_DISPATCHER, DEAD_DISPATCHER])
-    def state_change_handler(self, ev): 
-        """
-            Record datapath information.
-        """
-        datapath = ev.datapath
-        if ev.state == MAIN_DISPATCHER:
-            # if datapath.id not in self.datapaths:
-            self.logger.debug('Datapath registered: %016x', datapath.id)
-            print ('Datapath registered:', datapath.id) ##
-                # self.datapaths[datapath.id] = datapath
-        elif ev.state == DEAD_DISPATCHER:
-            # if datapath.id in self.datapaths:
-            self.logger.debug('Datapath unregistered: %016x', datapath.id)
-            print ('Datapath unregistered:', datapath.id)
-            print ("FUCK")
-                # del self.datapaths[datapath.id]
-
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         """
             Install table-miss flow entry to datapaths.
         """       
         datapath = ev.msg.datapath
-        # print("datapath features handler", datapath, datapath.id)
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         self.logger.info("switch:%s connected", datapath.id)
-
-
-        # Install table-miss flow entry.
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
@@ -168,7 +135,6 @@ class simple_Awareness(app_manager.RyuApp):
         present_time = time.time()
         if present_time - self.start_time < self.initiation_delay: #Set to 30s
             return
-
         self.logger.info("[Topology Discovery Ok]")
         switch_list = get_switch(self.topology_api_app, None)
         self.create_port_map(switch_list)
@@ -220,18 +186,6 @@ class simple_Awareness(app_manager.RyuApp):
                 else:
                     pass
         return _graph
-
-    def get_initiation_delay(self, fanout):
-        """
-            Get initiation delay.
-        """
-        if fanout == 4:
-            delay = 10
-        elif fanout == 8:
-            delay = 20
-        else:
-            delay = 20
-        return delay
 
     def create_port_map(self, switch_list):
         """
@@ -287,37 +241,7 @@ class simple_Awareness(app_manager.RyuApp):
                 self.access_table.setdefault((dpid, in_port), None)
                 self.access_table[(dpid, in_port)] = (ip, mac)
                 return
-   
-    # def get_k_paths(self):
-    #     i = time.time()
-    #     file = './k_paths.json'
-    #     with open(file,'r') as json_file:
-    #         k_shortest_paths = json.load(json_file)
-    #         k_shortest_paths = ast.literal_eval(json.dumps(k_shortest_paths))
-        
-    #     print("[k_paths OK]")
-    #     print('time get kpaths', time.time()-i)
-    #     return k_shortest_paths
-    # def k_shortest_paths(self, graph, src, dst, k, weight='weight'):
-    #     return list(islice(nx.shortest_simple_paths(graph, src, dst, weight=weight), k))
 
-    # def all_k_shortest_paths(self, graph, weight='weight', k=10):
-    #     """
-    #         Get all K shortest paths between datapaths.
-    #         paths = {dp1:{dp2:[[path1], [path2],...,[pathk]]},}
-    #     """
-    #     _graph = graph.copy()
-    #     paths = {}
-    #     # Find k shortest paths in graph.
-    #     for src in _graph.nodes():
-    #         paths.setdefault(src, {})
-    #         for dst in _graph.nodes():
-    #             if src != dst:
-    #                 paths[src].setdefault(dst, [])
-    #                 paths[src][dst] = self.k_shortest_paths(_graph, src, dst, weight=weight, k=k)
-    #     with open('./k_paths.json','w') as json_file:
-    #         json.dump(paths, json_file, indent=2) 
-    #     return paths
 
     def show_topology(self):
         # print(self.shortest_paths)

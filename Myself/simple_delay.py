@@ -14,8 +14,6 @@ import networkx as nx
 import time
 import setting
 
-import simple_awareness
-
 CONF = cfg.CONF
 
 
@@ -31,7 +29,6 @@ class simple_Delay(app_manager.RyuApp):
         # self.sending_echo_request_interval = 0.1 #drl
         self.sw_module = lookup_service_brick('switches')
         self.awareness = lookup_service_brick('awareness')
-        # self.awareness = kwargs["simple_awareness"]
         self.datapaths = {}
         self.echo_latency = {}
         self.link_delay = {}

@@ -10,15 +10,14 @@ import setting
 
 SIZE = 24
 
-
-
 def DRL_thread():
     print("enter thread")
     column, row = SIZE,SIZE
     brain = [[0]*row for _ in range(column)]
     for i in range(1,SIZE):
         for j in range(1,SIZE):
-            brain[i][j] =  agent.Agent()
+            if i!=j:
+                brain[i][j] =  agent.Agent()
 
     all_path_list = state_to_action()
 
@@ -34,7 +33,6 @@ def DRL_thread():
     while True:
         time_in = time.time()
         step += 1
-        print("------------------------------------------ step %d ------------------------------------------" % step)
         state = get_state()  # get new state
         all_reward = path_metrics_to_reward()
         drl_paths = {}
@@ -56,7 +54,7 @@ def DRL_thread():
                         if step % 50 == 0:
                             print("network update")
                             brain[i][j].update_target()
-                        if step % 2000 == 0:
+                        if step % 3000 == 0:
                             brain[i][j].save_model(i,j)
 
         # write route path
@@ -66,15 +64,51 @@ def DRL_thread():
         time_end = time.time()
         print("calculate time:  ",time_end - time_in)
         state_memory = state
-        reward_list.append(reward_all)
+        reward_list.append(int(reward_all))
         path = 'output.txt'
         f = open(path, 'w')
         f.writelines(str(reward_list))
         f.close()
+        print("------------------------------------------ step %d ------------------------------------------" % step)
+        print("------------------------------------------  epsilon  %f ------------------------------------------   " % epsilon)
         if time_end - time_in < setting.MONITOR_PERIOD :
             time.sleep(setting.MONITOR_PERIOD - (time_end - time_in)) # wait for monitor period
-        epsilon -= (epsilon_ini - epsilon_final)/2000
-        print("------------------------------------------  epsilon  %f ------------------------------------------   " % epsilon)
+        if epsilon > epsilon_final:
+            epsilon -= (epsilon_ini - epsilon_final)/5000
+
+def DRL_eval():
+    column, row = SIZE,SIZE
+    brain = [[0]*row for _ in range(column)]
+    print("load model...")
+    for i in range(1,SIZE):
+        for j in range(1,SIZE):
+            if i!=j:
+                brain[i][j] =  agent.Agent()
+                brain[i][j].load_model(i,j)
+                print("load model....   ",i,"\t",j)
+    all_path_list = state_to_action()
+    print("Start eval")
+
+    while True:
+        time_in = time.time()
+        state = get_state()  # get new state
+        drl_paths = {}
+        for i in range(1,SIZE):
+            drl_paths.setdefault(str(i), {})
+            for j in range(1,SIZE):
+                if i != j:
+                    action,q_value = brain[i][j].get_action([state],0)
+                    drl_paths[str(i)][str(j)] = [all_path_list[i][j][action]]
+
+        # write route path
+        with open('./drl_paths.json','w') as json_file:
+            json.dump(drl_paths, json_file, indent=2)
+        time_end = time.time()
+        print("eval time:  ",time_end - time_in)
+        if time_end - time_in < setting.MONITOR_PERIOD :
+            time.sleep(setting.MONITOR_PERIOD - (time_end - time_in)) # wait for monitor period
+
+
 
 def path_metrics_to_reward():
         
@@ -108,8 +142,9 @@ def path_metrics_to_reward():
                         #     bwd_cost.append(1/0.001)
                         bwd_cost.append(round(val, 15))
                     paths_metrics_dict[str(i)][str(j)][m][0] = bwd_cost
-                met_list = paths_metrics_dict[str(i)][str(j)][m]
-                met_norm = [normalize(met_val, 0, 100, min(paths_metrics_dict[str(i)][str(j)][m][0]), max(paths_metrics_dict[str(i)][str(j)][m][0])) for met_val in paths_metrics_dict[str(i)][str(j)][m][0]]
+                    met_norm = [normalize(met_val, 0, 100, min(paths_metrics_dict[str(i)][str(j)][m][0]), max(paths_metrics_dict[str(i)][str(j)][m][0])) for met_val in paths_metrics_dict[str(i)][str(j)][m][0]]
+                else:    
+                    met_norm = [normalize(met_val, 100, 0, min(paths_metrics_dict[str(i)][str(j)][m][0]), max(paths_metrics_dict[str(i)][str(j)][m][0])) for met_val in paths_metrics_dict[str(i)][str(j)][m][0]]
                 paths_metrics_dict[str(i)][str(j)][m].append(met_norm)
     
     for i in paths_metrics_dict:
@@ -143,8 +178,8 @@ def reward(src, dst, paths_metrics_dict, act, metrics):
     paths_metrics_dict ={src:{dst:{metric1:[[orig value list],[normalized value list]]},metric2...}}
     '''
     beta1=1
-    beta2=0
-    beta3=0
+    beta2=1
+    beta3=1
     cost_action=0
     reward = cost_action + beta1*paths_metrics_dict[str(src)][str(dst)][metrics[0]][1][act] + beta2*paths_metrics_dict[str(src)][str(dst)][metrics[1]][1][act] + beta3*paths_metrics_dict[str(src)][str(dst)][metrics[2]][1][act]
     return round(reward,15)
@@ -162,4 +197,9 @@ def state_to_action(): # 20 paths according src,dst
                 paths_20[i][j] = paths[str(i)][str(j)]
     return paths_20
 if __name__ == "__main__":
-    DRL_thread()
+    print("1 : learning phase")
+    i = input()
+    if i == str(1):
+        DRL_thread()
+    else:
+        DRL_eval()
